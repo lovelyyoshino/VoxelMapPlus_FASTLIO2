@@ -8,6 +8,12 @@ namespace lio
     double VoxelGrid::merge_thresh_for_angle = 0.1;
     double VoxelGrid::merge_thresh_for_distance = 0.04;
 
+    /// @brief 初始化 VoxelGrid 对象的成员变量
+    /// @param _max_point_thresh 每个体素中的最大点数
+    /// @param _update_point_thresh 更新点数
+    /// @param _plane_thresh 是平面拟合的阈值
+    /// @param _position 设置体素在网格中的位置
+    /// @param _map 体素地图
     VoxelGrid::VoxelGrid(int _max_point_thresh, int _update_point_thresh, double _plane_thresh, VoxelKey _position, VoxelMap *_map)
         : max_point_thresh(_max_point_thresh),
           update_point_thresh(_update_point_thresh),
@@ -26,6 +32,8 @@ namespace lio
         // center = Eigen::Vector3d(position.x + 0.5, position.y + 0.5, position.z + 0.5) * map->voxel_size;
     }
 
+    /// @brief 计算新的点对平面均值和点对点协方差矩阵的贡献，并更新平面的统计信息
+    /// @param pv 带有协方差的点
     void VoxelGrid::addToPlane(const PointWithCov &pv)
     {
         plane->mean += (pv.point - plane->mean) / (plane->n + 1.0);
@@ -33,12 +41,16 @@ namespace lio
         plane->n += 1;
     }
 
+    /// @brief 将临时点云中的点拟合为平面
+    /// @param pv 带有协方差的点
     void VoxelGrid::addPoint(const PointWithCov &pv)
     {
         addToPlane(pv);
         temp_points.push_back(pv);
     }
 
+    /// @brief 更新平面的参数
+    /// @param pv 带有协方差的点
     void VoxelGrid::pushPoint(const PointWithCov &pv)
     {
         if (!is_init)
@@ -94,6 +106,7 @@ namespace lio
         }
     }
 
+    /// @brief 更新体素平面的统计信息，包括均值、协方差矩阵和平面法向量，对应UpdateOctoTree函数
     void VoxelGrid::updatePlane()
     {
         assert(temp_points.size() == plane->n);
@@ -101,6 +114,7 @@ namespace lio
             return;
         is_init = true;
         Eigen::Matrix3d cov = plane->ppt / static_cast<double>(plane->n) - plane->mean * plane->mean.transpose();
+        //通过计算点云数据的协方差矩阵，进行特征值分解，确定是否为平面
         Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> es(cov);
         Eigen::Matrix3d evecs = es.eigenvectors();
         Eigen::Vector3d evals = es.eigenvalues();
@@ -112,6 +126,7 @@ namespace lio
         is_plane = true;
         Eigen::Matrix3d J_Q = Eigen::Matrix3d::Identity() / static_cast<double>(plane->n);
         Eigen::Vector3d plane_norm = evecs.col(0);
+        //计算平面法向量和中心点
         for (PointWithCov &pv : temp_points)
         {
 
@@ -126,7 +141,7 @@ namespace lio
             }
             J.block<3, 3>(0, 0) = evecs * F;
             J.block<3, 3>(3, 0) = J_Q;
-            plane->cov += J * pv.cov * J.transpose();
+            plane->cov += J * pv.cov * J.transpose();//更新平面的协方差矩阵
         }
         double axis_distance = -plane->mean.dot(plane_norm);
         if (axis_distance < 0.0)
@@ -135,6 +150,7 @@ namespace lio
         center = plane->mean;
     }
 
+    /// @brief 将当前体素与邻近体素合并
     void VoxelGrid::merge()
     {
         std::vector<VoxelKey> near;
@@ -185,18 +201,29 @@ namespace lio
         }
     }
 
+    /// @brief 初始化 VoxelMap 对象的成员变量
+    /// @param _max_point_thresh 最大点数
+    /// @param _update_point_thresh 更新点数
+    /// @param _plane_thresh 平面阈值
+    /// @param _voxel_size 体素大小
+    /// @param _capacity 容量
     VoxelMap::VoxelMap(int _max_point_thresh, int _update_point_thresh, double _plane_thresh, double _voxel_size, int _capacity) : max_point_thresh(_max_point_thresh), update_point_thresh(_update_point_thresh), plane_thresh(_plane_thresh), voxel_size(_voxel_size), capacity(_capacity)
     {
         featmap.clear();
         cache.clear();
     }
 
+    /// @brief 根据点云数据计算体素的索引
+    /// @param point 点云数据
+    /// @return 
     VoxelKey VoxelMap::index(const Eigen::Vector3d &point)
     {
         Eigen::Vector3d idx = (point / voxel_size).array().floor();
         return VoxelKey(static_cast<int64_t>(idx(0)), static_cast<int64_t>(idx(1)), static_cast<int64_t>(idx(2)));
     }
 
+    /// @brief 构建体素地图，对应BuildVoxelMap函数
+    /// @param pvs 带有协方差的点云数据
     void VoxelMap::build(std::vector<PointWithCov> &pvs)
     {
         for (PointWithCov &pv : pvs)
@@ -229,6 +256,8 @@ namespace lio
         }
     }
 
+    /// @brief 更新体素地图,对应代码为updateVoxelMap
+    /// @param pvs 带有协方差的点云数据
     void VoxelMap::update(std::vector<PointWithCov> &pvs)
     {
 
@@ -255,6 +284,10 @@ namespace lio
         }
     }
 
+    /// @brief 计算残差，对应build_single_residual
+    /// @param data 残差数据
+    /// @param voxel_grid 体素网格
+    /// @return 
     bool VoxelMap::buildResidual(ResidualData &data, std::shared_ptr<VoxelGrid> voxel_grid)
     {
         data.is_valid = false;
